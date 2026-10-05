@@ -16,8 +16,8 @@ Güncel kamu personel alım ilanlarını kendi bilgisayarınızda arayabileceği
 Python 3.9 veya üstü gerekir.
 
 ```
-git clone https://github.com/EmreKendirli/kamu-ilan-botu.git
-cd kamu-ilan-botu
+git clone https://github.com/EmreKendirli/kamuilan.git
+cd kamuilan
 pip install -r requirements.txt
 python app.py
 ```
