@@ -7,7 +7,7 @@ Güncel kamu personel alım ilanlarını kendi bilgisayarınızda arayabileceği
 ## Ne yapar?
 
 - **Arama:** "bilişim" yazarsınız, başlığında ya da metninde bilişim geçen ilanlar gelir. Örneğin başlığı yalnızca "15 sözleşmeli personel alacak" olan bir ilanın içindeki bilişim kadrosunu da bulur. Türkçe harf ve büyük/küçük harf fark etmez ("bilisim" de olur).
-- **Bana uygun:** Bölümünüzü, KPSS ve YDS puanınızı, SGK prim gününüzü girersiniz; site ilan metinlerindeki şartlarla karşılaştırıp ilanları "uygun görünüyor", "kontrol edilmeli", "bir şartı tutmuyor" ve "akademik kadro" diye ayırır. Her ilanda nedenini satır satır gösterir.
+- **Bana uygun:** Mesleğinizi ya da bölümünüzü, KPSS ve YDS puanınızı, SGK prim gününüzü sayfadaki forma girersiniz; site ilan metinlerindeki şartlarla karşılaştırıp ilanları "uygun görünüyor", "kontrol edilmeli", "bir şartı tutmuyor" ve "akademik kadro" diye ayırır. Her ilanda nedenini satır satır gösterir.
 - **İlan detayı:** Kurum, başvuru tarihleri, kalan gün ve ilanın resmi PDF'i tek sayfada.
 - **Bildirim botu (isteğe bağlı):** Belirlediğiniz kelimeleri içeren yeni ilanları günde iki kez kontrol eder, isterseniz Telegram'dan haber verir.
 
@@ -30,7 +30,9 @@ Site `http://localhost:5000` adresinde açılır. Windows'ta `baslat.bat` dosyas
 
 ## Kendi bilgilerinizi girme
 
-"Bana uygun" sekmesi için proje klasöründe `profil.json` adında bir dosya oluşturun:
+"Bana uygun" sekmesindeki formu doldurup **İlanları getir**'e basın: meslek ya da bölüm, isterseniz yakın bölümler, KPSS ve YDS puanı, SGK prim günü. Boş bıraktığınız puan karşılaştırılmaz, ilandaki şart yalnızca bilgi olarak gösterilir. Girdikleriniz yalnızca kendi tarayıcınızda saklanır.
+
+Formun hazır dolu gelmesini isterseniz proje klasöründe `profil.json` adında bir dosya oluşturun:
 
 ```json
 {
@@ -52,7 +54,23 @@ Site `http://localhost:5000` adresinde açılır. Windows'ta `baslat.bat` dosyas
 | `yds` | Yabancı dil puanınız (yoksa 0) |
 | `premium_days` | SGK prim gününüz (360 gün = 1 yıl deneyim) |
 
-`profil.json` git'e eklenmez. Dosya yoksa `config.py` içindeki örnek değerler kullanılır. Değişiklikten sonra siteyi yeniden başlatın.
+`profil.json` git'e eklenmez. Dosya yoksa form boş açılır. Değişiklikten sonra siteyi yeniden başlatın.
+
+## Sunucuda çalıştırma
+
+Depoda [Render](https://render.com) için hazır ayar var (`render.yaml`). Aşağıdaki düğme depoyu kendi Render hesabınıza kurar:
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/EmreKendirli/kamuilan)
+
+Render'ın ücretsiz planında site 15 dakika kullanılmayınca uyur; uyanınca ilanları baştan tarar.
+
+Başka bir sunucuda aynı başlatma komutunu kullanabilirsiniz:
+
+```
+gunicorn app:app --workers 1 --threads 8 --bind 0.0.0.0:$PORT --timeout 120
+```
+
+İlan listesi ve metinler bellekte tutulduğu için `--workers 1` şarttır. Kalıcı disk bağlı değilse her yeniden başlatmada ilanlar baştan taranır (birkaç dakika). Kaynak site sunucunuzun bulunduğu ülkeden gelen istekleri engelliyorsa sayfada "Kaynak siteden ilanlar alınamadı" yazar.
 
 ## Ayarlar
 
@@ -91,6 +109,6 @@ Bildirimlerdeki linkler arama sitesinin detay sayfasına gider, bu yüzden yaln�
 - **"Bana uygun" bir ön elemedir.** Şartları ilan metninden kalıplarla (örn. "en az 3 yıl tecrübe", "KPSS en az 70 puan") çıkarır. Yaş sınırı, sertifika gibi şartlara bakmaz; tablo içinde yazan puanları okuyamayabilir; çok pozisyonlu ilanlarda bir şartın hangi pozisyona ait olduğunu her zaman ayıramaz. Başvurmadan önce ilanın kendisini okuyun.
 - Taranmış (resim) PDF'lerin metni okunamaz; bu ilanlar yalnızca başlıklarıyla aranır.
 - Tek kaynak kamuilan.sbb.gov.tr'dir. Orada yayımlanmayan ilanlar burada da çıkmaz.
-- Site kişisel kullanım için yazılmıştır ve Flask'ın geliştirme sunucusuyla çalışır; internete açmak için uygun değildir.
+- `python app.py` Flask'ın geliştirme sunucusunu başlatır; bu yalnızca kendi bilgisayarınız içindir. İnternete açarken "Sunucuda çalıştırma" bölümündeki komutu kullanın.
 
 Bu proje resmi bir uygulama değildir ve Strateji ve Bütçe Başkanlığı ile bir bağlantısı yoktur.

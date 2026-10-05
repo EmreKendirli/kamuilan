@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: kamuilan
+    runtime: python
+    plan: free
+    region: frankfurt
+    buildCommand: pip install -r requirements.txt
+    # İlan listesi ve metinler bellekte tutulduğu için tek işlem (--workers 1) şart
+    startCommand: gunicorn app:app --workers 1 --threads 8 --bind 0.0.0.0:$PORT --timeout 120
+    healthCheckPath: /
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.13.0

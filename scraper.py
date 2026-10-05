@@ -2,7 +2,7 @@ import hashlib
 import io
 import logging
 import re
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 
 import requests
 from bs4 import BeautifulSoup
@@ -33,6 +33,10 @@ def fold(text):
     """Türkçe harfleri sadeleştirip küçültür; 'BİLİŞİM', 'bilişim' ve 'bilisim' aynı olur."""
     return text.translate(_TR_MAP).lower()
 
+def now():
+    """Türkiye saati (UTC+3); sunucu başka saat diliminde çalışsa da tarihler kaymasın."""
+    return datetime.now(timezone(timedelta(hours=3)))
+
 def parse_deadline(apply_dates, today=None):
     """'4 Ekim - 11 Ekim' aralığının son gününü tarihe çevirir (sitede yıl yazmıyor)."""
     found = re.findall(r"(\d{1,2})\s+([^\W\d]+)", apply_dates)
@@ -42,7 +46,7 @@ def parse_deadline(apply_dates, today=None):
     if not month:
         return None
 
-    today = today or date.today()
+    today = today or now().date()
     candidates = []
     for year in (today.year - 1, today.year, today.year + 1):
         try:

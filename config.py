@@ -13,15 +13,15 @@ KEYWORDS = [
     "personel"
 ]
 
-# "Bana uygun" sekmesinde ilanların karşılaştırılacağı bilgiler.
-# Buradakiler örnek değerlerdir; kendi bilgilerinizi profil.json dosyasına yazın (git'e eklenmez).
+# "Bana uygun" sekmesindeki formun hazır dolu geleceği bilgiler.
+# Boş bırakılırsa form boş açılır; kendi bilgilerinizi profil.json dosyasına yazın (git'e eklenmez).
 PROFILE = {
-    "title": "Yazılım Mühendisi",
-    "departments": ["Yazılım Mühendisliği"],            # mezun olunan bölüm
-    "related_departments": ["Bilgisayar Mühendisliği"], # yakın bölüm: başvuru hakkı ilana göre değişir
-    "kpss": 70,
-    "yds": 0,                                           # yabancı dil puanı (yoksa 0)
-    "premium_days": 0                                   # SGK prim günü (360 gün = 1 yıl deneyim)
+    "title": "",
+    "departments": [],          # mezun olunan bölüm, örn. ["Yazılım Mühendisliği"]
+    "related_departments": [],  # yakın bölüm: başvuru hakkı ilana göre değişir
+    "kpss": None,
+    "yds": None,                # yabancı dil puanı
+    "premium_days": None        # SGK prim günü (360 gün = 1 yıl deneyim)
 }
 
 _profile_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "profil.json")

@@ -28,9 +28,13 @@ def experience_label(days):
     parts = ([f"{years} yıl"] if years else []) + ([f"{months} ay"] if months else [])
     return " ".join(parts) or "1 aydan az"
 
-def _stem(department):
-    """'Yazılım Mühendisliği' -> 'yazilim muhendis' ('mühendisi', 'mühendisleri' de eşleşsin)"""
-    return fold(department).removesuffix("ligi")
+def _stem(name):
+    """'Yazılım Mühendisliği' / 'Yazılım Mühendisi' -> 'yazilim muhendis' (ekli halleri de eşleşsin)"""
+    stem = " ".join(fold(name).split())
+    for suffix in ("ligi", "lugu", "i", "u"):
+        if stem.endswith(suffix) and len(stem) - len(suffix) >= 4:
+            return stem.removesuffix(suffix)
+    return stem
 
 def _spans(folded, stems):
     """Bölüm adının geçtiği yerlerin çevresi; o pozisyonun şartları çoğunlukla burada yazar."""
@@ -74,9 +78,11 @@ def _experience_years(folded):
 def _compare(required_values, mine_value, required, mine):
     """İlanda bulunan şart(lar)ı kişinin değeriyle karşılaştırıp tek satırlık sonuç üretir."""
     low, high = min(required_values), max(required_values)
+    if mine_value is None:      # kişi bu bilgiyi girmemiş: şartı yalnızca bildir
+        return {"state": "info", "text": required(low, high)}
     # Birden çok pozisyonun şartı karışmış olabilir: en düşüğünü bile tutmuyorsa olumsuz, hepsini tutuyorsa olumlu
     state = "fail" if mine_value < low else "ok" if mine_value >= high else "warn"
-    return {"state": state, "text": f"{required(low, high)}; {mine}"}
+    return {"state": state, "text": f"{required(low, high)}; {mine(mine_value)}"}
 
 def evaluate(listing, folded, profile):
     """İlanı profile göre değerlendirir; ilan profildeki bölümlerle ilgili değilse None döner.
@@ -117,7 +123,7 @@ def evaluate(listing, folded, profile):
         checks.append(_compare(
             kpss, profile["kpss"],
             required=lambda low, high: f"KPSS en az {low} isteniyor" if low == high else f"KPSS tabanı pozisyona göre {low}–{high}",
-            mine=f"sizde {profile['kpss']}"
+            mine=lambda score: f"sizde {score}"
         ))
     elif "kpss sarti aranma" in folded:
         checks.append({"state": "info", "text": "KPSS şartı aranmıyor"})
@@ -128,21 +134,25 @@ def evaluate(listing, folded, profile):
         checks.append(_compare(
             language, profile["yds"],
             required=lambda low, high: f"YDS en az {low} isteniyor" if low == high else f"YDS tabanı pozisyona göre {low}–{high}",
-            mine=f"sizde {profile['yds']}"
+            mine=lambda score: f"sizde {score}"
         ))
     elif minimums["language"]:
         # Şart bölüm adından uzakta yazıyor: herkes için mi, yalnızca bazı pozisyonlar için mi belli değil
         lowest = min(score for _, score in minimums["language"])
-        if profile["yds"] >= max(score for _, score in minimums["language"]):
+        if profile["yds"] is None:
+            checks.append({"state": "info", "text": f"İlanda YDS en az {lowest} şartı geçiyor"})
+        elif profile["yds"] >= max(score for _, score in minimums["language"]):
             checks.append({"state": "ok", "text": f"İlanda YDS en az {lowest} şartı geçiyor; sizde {profile['yds']}"})
         else:
             checks.append({"state": "warn", "text": f"İlanda YDS en az {lowest} şartı geçiyor; sizde {profile['yds']}. Sizin pozisyonunuz için istenip istenmediğine bakın"})
     elif LANGUAGE.search(folded) and not weighted:
         checks.append({"state": "info", "text": "İlanda yabancı dil puanından söz ediliyor; şart olup olmadığına bakın"})
 
-    if weighted:
-        ranking = f"{profile['kpss'] * 0.7 + profile['yds'] * 0.3:.1f}".replace(".", ",")
+    if weighted and profile["kpss"] is not None:
+        ranking = f"{profile['kpss'] * 0.7 + (profile['yds'] or 0) * 0.3:.1f}".replace(".", ",")
         checks.append({"state": "info", "text": f"Sıralama KPSS'nin %70'i + YDS'nin %30'u ile yapılıyor; sizin puanınız {ranking}"})
+    elif weighted:
+        checks.append({"state": "info", "text": "Sıralama KPSS'nin %70'i + YDS'nin %30'u ile yapılıyor"})
     if ALES.search(folded):
         checks.append({"state": "info", "text": "İlanda ALES puanı şartı geçiyor"})
 
@@ -156,7 +166,7 @@ def evaluate(listing, folded, profile):
                 f"En az {low // DAYS_PER_YEAR} yıl ({low} prim günü) deneyim isteniyor" if low == high
                 else f"Deneyim şartı pozisyona göre {low // DAYS_PER_YEAR}–{high // DAYS_PER_YEAR} yıl ({low}–{high} prim günü)"
             ),
-            mine=f"sizde {profile['premium_days']} gün ({experience_label(profile['premium_days'])})"
+            mine=lambda days: f"sizde {days} gün ({experience_label(days)})"
         ))
 
     states = {check["state"] for check in checks}

@@ -25,7 +25,24 @@
   </section>
 
   <section id="view-match" role="tabpanel" aria-labelledby="tab-match" hidden>
-    <p class="profile" id="profile"></p>
+    <form id="profile-form" class="profile-form">
+      <label class="wide"><span>Meslek / bölüm</span>
+        <input id="p-bolum" type="text" required placeholder="Örn. Yazılım Mühendisliği" autocomplete="off">
+      </label>
+      <label class="wide"><span>Yakın bölümler <small>(isteğe bağlı, virgülle ayırın)</small></span>
+        <input id="p-yakin" type="text" placeholder="Örn. Bilgisayar Mühendisliği" autocomplete="off">
+      </label>
+      <label><span>KPSS puanı</span>
+        <input id="p-kpss" type="number" min="0" max="100" step="0.01" placeholder="Yoksa boş bırakın">
+      </label>
+      <label><span>YDS puanı</span>
+        <input id="p-yds" type="number" min="0" max="100" step="0.01" placeholder="Yoksa boş bırakın">
+      </label>
+      <label><span>SGK prim günü <small id="p-gun-hint"></small></span>
+        <input id="p-gun" type="number" min="0" step="1" placeholder="Örn. 840">
+      </label>
+      <button type="submit">İlanları getir</button>
+    </form>
     <p class="note">
       İlan metinleri otomatik taranır: bölüm adı, KPSS ve YDS tabanı, deneyim süresi karşılaştırılır.
       Yaş sınırı, sertifika gibi şartlara bakılmaz; başvurmadan önce ilanın kendisini okuyun.
@@ -58,8 +75,14 @@
   const resultsEl = document.getElementById("results");
   const chipsEl = document.getElementById("chips");
   const updatedEl = document.getElementById("updated");
-  const profileEl = document.getElementById("profile");
   const tabButtons = document.querySelectorAll(".tabs button");
+  const profileForm = document.getElementById("profile-form");
+  // Form alanı -> /api/match parametresi
+  const profileFields = {bolum: "p-bolum", yakin: "p-yakin", kpss: "p-kpss", yds: "p-yds", gun: "p-gun"};
+  for (const key in profileFields) profileFields[key] = document.getElementById(profileFields[key]);
+  const daysHint = document.getElementById("p-gun-hint");
+  // "İlanları getir" ile gönderilen son bilgiler; yalnızca bu tarayıcıda saklanır
+  let savedProfile = null;
 
   const params = new URLSearchParams(location.search);
   let tab = params.get("sekme") === "uygun" ? "match" : "search";
@@ -186,15 +209,36 @@
     }
   }
 
+  function updateDaysHint() {
+    const days = parseInt(profileFields.gun.value, 10);
+    const years = Math.floor(days / 360), months = Math.floor((days % 360) / 30);
+    daysHint.textContent = days > 0 ? `(${[years && `${years} yıl`, months && `${months} ay`].filter(Boolean).join(" ") || "1 aydan az"})` : "";
+  }
+
+  function fillProfile(values) {
+    for (const key in profileFields) profileFields[key].value = values[key] ?? "";
+    updateDaysHint();
+  }
+
+  function matchAddress() {
+    // Form hiç doldurulmadıysa sunucudaki hazır profil (profil.json) kullanılır
+    return savedProfile ? `/api/match?${new URLSearchParams(savedProfile)}` : "/api/match";
+  }
+
   function renderMatch(data) {
     const profile = data.profile;
-    profileEl.replaceChildren(
-      el("strong", null, profile.title),
-      ` · KPSS ${profile.kpss} · YDS ${profile.yds} · ${profile.premium_days} prim günü (${profile.experience} deneyim)`
-    );
+    if (!savedProfile && !profileFields.bolum.value) {
+      fillProfile({
+        bolum: profile.departments.join(", "),
+        yakin: profile.related_departments.join(", "),
+        kpss: profile.kpss, yds: profile.yds, gun: profile.premium_days
+      });
+    }
 
     const count = GROUPS.reduce((sum, [key]) => sum + data.groups[key].length, 0);
-    const ready = renderStatus(data, [`Alanınızın geçtiği ${count} ilan bulundu`]);
+    const ready = renderStatus(data, profile.departments.length
+      ? [el("strong", null, `“${profile.title}”`), ` geçen ${count} ilan bulundu`]
+      : ["Önce mesleğinizi ya da bölümünüzü yazın"]);
 
     const signature = JSON.stringify(["match", data.groups, data.hidden]);
     if (signature === lastRendered) return;
@@ -208,10 +252,10 @@
       heading.append(el("span", null, results.length));
       resultsEl.append(heading, el("p", "hint", hint), cardList(results, result => result.terms));
     }
-    if (ready && !count) {
+    if (ready && !count && profile.departments.length) {
       resultsEl.append(el("p", "empty", data.indexing
         ? "Henüz uygun ilan çıkmadı. İlan metinleri taranmaya devam ediyor."
-        : "Şu an alanınızın geçtiği güncel ilan yok."));
+        : "Şu an bu meslek ya da bölümün geçtiği güncel ilan yok. Adı daha kısa yazmayı deneyin (örn. “hemşire”)."));
     }
 
     const hidden = [];
@@ -233,7 +277,7 @@
 
     let data;
     try {
-      const response = await fetch(tab === "match" ? "/api/match" : `/api/search?q=${encodeURIComponent(query)}`);
+      const response = await fetch(tab === "match" ? matchAddress() : `/api/search?q=${encodeURIComponent(query)}`);
       if (!response.ok) throw new Error(response.status);
       data = await response.json();
     } catch (error) {
@@ -267,6 +311,21 @@
     chip.addEventListener("click", () => { input.value = keyword; run(); });
     chipsEl.append(chip);
   }
+
+  try {
+    const saved = JSON.parse(localStorage.getItem("profil"));
+    if (saved && saved.bolum) { fillProfile(saved); savedProfile = saved; }
+  } catch (error) {}
+
+  profileForm.addEventListener("submit", event => {
+    event.preventDefault();
+    savedProfile = {};
+    for (const key in profileFields) savedProfile[key] = profileFields[key].value.trim();
+    // Saklanamıyorsa (gizli sekme vb.) bilgiler yalnızca bu sayfa açıkken geçerli olur
+    try { localStorage.setItem("profil", JSON.stringify(savedProfile)); } catch (error) {}
+    run();
+  });
+  profileFields.gun.addEventListener("input", updateDaysHint);
 
   for (const button of tabButtons) button.addEventListener("click", () => showTab(button.dataset.tab));
   document.getElementById("form").addEventListener("submit", event => { event.preventDefault(); run(); });

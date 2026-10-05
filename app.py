@@ -3,7 +3,7 @@ import re
 import threading
 import time
 import webbrowser
-from datetime import date, datetime
+from datetime import date
 from pathlib import Path
 
 from flask import Flask, abort, jsonify, render_template, request, send_file, url_for
@@ -65,7 +65,7 @@ def refresh():
     with lock:
         state["listings"] = listings
         state["texts"] = {k: v for k, v in state["texts"].items() if k in ids}
-        state["updated"] = datetime.now()
+        state["updated"] = scraper.now()
         state["error"] = None
 
     # Yayından kalkan ilanların dosyalarını temizle (yalnızca bizim ürettiğimiz adlar)
@@ -117,7 +117,7 @@ def deadline_info(listing):
     """Son başvuru gününe kalan gün sayısını ve ekranda gösterilecek halini döndürür."""
     if not listing["deadline"]:
         return None, None
-    days = (date.fromisoformat(listing["deadline"]) - date.today()).days
+    days = (date.fromisoformat(listing["deadline"]) - scraper.now().date()).days
     if days < 0:
         return days, "Süresi doldu"
     if days == 0:
@@ -191,15 +191,48 @@ def search():
 
     return jsonify({**status, "results": results})
 
+def request_profile():
+    """Sayfadaki formdan gelen bilgiler; form gönderilmemişse profil.json / config.py'deki profil."""
+    args = request.args
+    if "bolum" not in args:
+        return PROFILE
+
+    def names(key):
+        # Çok kısa adlar ("it" gibi) her ilanla eşleşir
+        return [name.strip() for name in args.get(key, "").split(",") if len(name.strip()) >= 3]
+
+    def number(key, highest):
+        """Boş bırakılan alan None döner: o şart karşılaştırılmaz, yalnızca bildirilir."""
+        try:
+            value = float(args.get(key, "").replace(",", "."))
+        except ValueError:
+            return None
+        if value != value:      # "nan"
+            return None
+        value = min(max(value, 0), highest)
+        return int(value) if value.is_integer() else value
+
+    departments = names("bolum")
+    days = number("gun", 20000)
+    return {
+        "title": ", ".join(departments),
+        "departments": departments,
+        "related_departments": names("yakin"),
+        "kpss": number("kpss", 100),
+        "yds": number("yds", 100),
+        "premium_days": None if days is None else int(days)
+    }
+
 @app.get("/api/match")
 def match():
     listings, texts, status = snapshot()
+    profile = request_profile()
 
     groups = {"suitable": [], "check": [], "unlikely": [], "academic": []}
     hidden = {"faculty": 0, "cancelled": 0}
     for listing in listings:
         text, folded = texts.get(listing["id"], ("", ""))
-        verdict = matcher.evaluate(listing, folded, PROFILE)
+        verdict = matcher.evaluate(listing, folded, profile)
         if not verdict:
             continue
         if verdict["group"] in hidden:
@@ -217,13 +250,6 @@ def match():
     for results in groups.values():
         results.sort(key=lambda r: not r["own"])
 
-    profile = {
-        "title": PROFILE["title"],
-        "kpss": PROFILE["kpss"],
-        "yds": PROFILE["yds"],
-        "premium_days": PROFILE["premium_days"],
-        "experience": matcher.experience_label(PROFILE["premium_days"])
-    }
     return jsonify({**status, "profile": profile, "groups": groups, "hidden": hidden})
 
 @app.get("/ilan/<listing_id>")
@@ -255,9 +281,12 @@ def open_document(listing_id):
 
     return send_file(path, download_name=f"ilan-{listing_id}{path.suffix}")
 
+# İlan taraması hem "python app.py" ile hem de sunucuda (gunicorn app:app) başlasın.
+# Durum bellekte tutulduğu için sunucuda tek işlemle (--workers 1) çalıştırılmalıdır.
+CACHE.mkdir(exist_ok=True)
+threading.Thread(target=refresh_loop, daemon=True).start()
+
 if __name__ == "__main__":
-    CACHE.mkdir(exist_ok=True)
-    threading.Thread(target=refresh_loop, daemon=True).start()
     threading.Timer(1.0, webbrowser.open, args=[SITE_URL]).start()
 
     # Sayfa arama isteklerini sık yenilediği için her isteğin konsola yazılmasını kapat
