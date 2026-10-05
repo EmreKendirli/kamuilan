@@ -106,8 +106,7 @@ def refresh_loop():
             print(f"[!] İlanlar güncellenemedi: {e}")
         finally:
             state["indexing"] = False
-        # Hiç ilan alınamadıysa yarım saat beklemeden yeniden dene
-        time.sleep(REFRESH_MINUTES * 60 if state["listings"] else 120)
+        time.sleep(REFRESH_MINUTES * 60)
 
 def make_snippet(text, folded, terms):
     """Metinde ilk eşleşen kelimenin çevresinden kısa bir alıntı döndürür."""
