@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kamu İlan Arama</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<main>
+  <h1>Kamu İlan Arama</h1>
+  <p class="lead">Güncel kamu personel alım ilanlarını başlığına ve ilan metninin içine bakarak arar.</p>
+
+  <div class="tabs" role="tablist">
+    <button type="button" role="tab" id="tab-search" data-tab="search" aria-controls="view-search">Arama</button>
+    <button type="button" role="tab" id="tab-match" data-tab="match" aria-controls="view-match">Bana uygun</button>
+  </div>
+
+  <section id="view-search" role="tabpanel" aria-labelledby="tab-search">
+    <form id="form" role="search">
+      <input id="q" type="search" placeholder="Örn. bilişim, mühendis, hemşire…" aria-label="İlanlarda ara" autocomplete="off">
+      <button type="submit">Ara</button>
+    </form>
+    <div class="chips" id="chips" data-keywords='{{ keywords|tojson }}'></div>
+  </section>
+
+  <section id="view-match" role="tabpanel" aria-labelledby="tab-match" hidden>
+    <p class="profile" id="profile"></p>
+    <p class="note">
+      İlan metinleri otomatik taranır: bölüm adı, KPSS ve YDS tabanı, deneyim süresi karşılaştırılır.
+      Yaş sınırı, sertifika gibi şartlara bakılmaz; başvurmadan önce ilanın kendisini okuyun.
+    </p>
+  </section>
+
+  <p id="status" aria-live="polite"></p>
+  <div id="results"></div>
+
+  <footer>
+    Kaynak: <a href="https://kamuilan.sbb.gov.tr/" target="_blank" rel="noopener">kamuilan.sbb.gov.tr</a>
+    <span id="updated"></span>
+  </footer>
+</main>
+
+<script>
+  const TR_MAP = {"İ":"i","I":"i","ı":"i","Ş":"s","ş":"s","Ğ":"g","ğ":"g","Ü":"u","ü":"u","Ö":"o","ö":"o","Ç":"c","ç":"c","Â":"a","â":"a","Î":"i","î":"i","Û":"u","û":"u"};
+  // Sunucudaki fold() ile aynı: harf sayısı değişmez, konumlar asıl metinle örtüşür
+  const fold = s => s.replace(/[İIıŞşĞğÜüÖöÇçÂâÎîÛû]/g, c => TR_MAP[c]).toLowerCase();
+
+  const GROUPS = [
+    ["suitable", "Uygun görünenler", "Bölümünüz ilanda geçiyor ve bulunan şartların hiçbiri sizi elemiyor."],
+    ["check", "Kontrol edilmesi gerekenler", "Bir şartın sizin için geçerli olup olmadığı metinden anlaşılamadı; “!” işaretli satıra bakın."],
+    ["unlikely", "Bir şartı tutmuyor", "Bölümünüz ilanda geçiyor ama en az bir şartı karşılamıyorsunuz."],
+    ["academic", "Akademik kadrolar", "Öğretim ve araştırma görevlisi ilanları; KPSS ve prim günü burada belirleyici değil."]
+  ];
+
+  const input = document.getElementById("q");
+  const statusEl = document.getElementById("status");
+  const resultsEl = document.getElementById("results");
+  const chipsEl = document.getElementById("chips");
+  const updatedEl = document.getElementById("updated");
+  const profileEl = document.getElementById("profile");
+  const tabButtons = document.querySelectorAll(".tabs button");
+
+  const params = new URLSearchParams(location.search);
+  let tab = params.get("sekme") === "uygun" ? "match" : "search";
+  let requestNo = 0;
+  let lastRendered = null;
+  let pollTimer = null;
+  let typeTimer = null;
+
+  function el(tag, className, text) {
+    const node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text != null) node.textContent = text;
+    return node;
+  }
+
+  function highlight(text, terms) {
+    const folded = fold(text);
+    const marked = new Array(text.length).fill(false);
+    for (const term of terms) {
+      for (let i = folded.indexOf(term); i !== -1; i = folded.indexOf(term, i + term.length)) {
+        // Kelimenin sonuna kadar boya: "mühendis" araması "mühendisliği"nin tamamını işaretlesin
+        let end = i + term.length;
+        while (end < text.length && /\p{L}/u.test(text[end])) end++;
+        marked.fill(true, i, end);
+      }
+    }
+    const fragment = document.createDocumentFragment();
+    for (let i = 0; i < text.length;) {
+      let j = i;
+      while (j < text.length && marked[j] === marked[i]) j++;
+      fragment.append(marked[i] ? el("mark", null, text.slice(i, j)) : text.slice(i, j));
+      i = j;
+    }
+    return fragment;
+  }
+
+  function card(result, terms) {
+    // Kartın tamamı detay sayfasına gider; "İlan detayı" yazısı bunun görünür işaretidir
+    const link = el("a", "card");
+    link.href = `/ilan/${result.id}`;
+
+    if (result.logo) {
+      const logo = el("img", "logo");
+      logo.src = result.logo;
+      logo.alt = "";
+      logo.loading = "lazy";
+      logo.referrerPolicy = "no-referrer";
+      logo.onerror = () => logo.remove();
+      link.append(logo);
+    }
+
+    const body = el("div");
+    const institution = el("div", "institution");
+    institution.append(highlight(result.institution, terms));
+    const title = el("h3");
+    title.append(highlight(result.title, terms));
+    body.append(institution, title);
+
+    const meta = el("div", "meta");
+    if (result.apply_dates) meta.append(el("span", null, `Başvuru: ${result.apply_dates}`));
+    if (result.days_left != null) {
+      meta.append(el("span", result.days_left <= 3 ? "left urgent" : "left", result.days_left_label));
+    }
+    if (result.published) meta.append(el("span", null, `Yayın: ${result.published}`));
+    if (terms.length && result.hits) meta.append(el("span", null, `İlan metninde ${result.hits} eşleşme`));
+    body.append(meta);
+
+    if (result.checks) {
+      const checks = el("ul", "checks");
+      for (const check of result.checks) checks.append(el("li", check.state, check.text));
+      body.append(checks);
+    }
+    if (terms.length && result.snippet) {
+      const snippet = el("p", "snippet");
+      snippet.append(highlight(result.snippet, terms));
+      body.append(snippet);
+    }
+    body.append(el("span", "more", "İlan detayı →"));
+
+    link.append(body);
+    const item = el("li");
+    item.append(link);
+    return item;
+  }
+
+  function cardList(results, termsOf) {
+    const list = el("ol", "cards");
+    list.append(...results.map(result => card(result, termsOf(result))));
+    return list;
+  }
+
+  // Durum satırını yazar; sayfa henüz veri gösteremiyorsa false döner
+  function renderStatus(data, summary) {
+    const scanning = data.indexing && data.indexed < data.total
+      ? ` · ilan metinleri taranıyor (${data.indexed}/${data.total})` : "";
+    updatedEl.textContent = data.updated ? ` · Son güncelleme ${data.updated}` : "";
+
+    statusEl.textContent = "";
+    if (!data.ready) {
+      statusEl.textContent = data.error
+        ? `Kaynak siteden ilanlar alınamadı: ${data.error}`
+        : "İlanlar kaynak siteden alınıyor…";
+      return false;
+    }
+    statusEl.append(...summary, scanning);
+    return true;
+  }
+
+  function renderSearch(data, query) {
+    const terms = fold(query).split(/\s+/).filter(Boolean);
+    const ready = renderStatus(data, terms.length
+      ? [el("strong", null, `“${query.trim()}”`), ` için ${data.results.length} ilan bulundu`]
+      : [`${data.total} güncel ilan`]);
+
+    const signature = JSON.stringify(["search", query, data.results]);
+    if (signature === lastRendered) return;
+    lastRendered = signature;
+
+    resultsEl.replaceChildren(cardList(data.results, () => terms));
+    if (ready && !data.results.length) {
+      resultsEl.replaceChildren(el("p", "empty", data.indexing
+        ? "Henüz eşleşen ilan yok. İlan metinleri taranmaya devam ediyor, birazdan yeni sonuç çıkabilir."
+        : "Bu aramayla eşleşen güncel ilan yok. Daha kısa veya farklı bir kelime deneyin."));
+    }
+  }
+
+  function renderMatch(data) {
+    const profile = data.profile;
+    profileEl.replaceChildren(
+      el("strong", null, profile.title),
+      ` · KPSS ${profile.kpss} · YDS ${profile.yds} · ${profile.premium_days} prim günü (${profile.experience} deneyim)`
+    );
+
+    const count = GROUPS.reduce((sum, [key]) => sum + data.groups[key].length, 0);
+    const ready = renderStatus(data, [`Alanınızın geçtiği ${count} ilan bulundu`]);
+
+    const signature = JSON.stringify(["match", data.groups, data.hidden]);
+    if (signature === lastRendered) return;
+    lastRendered = signature;
+
+    resultsEl.replaceChildren();
+    for (const [key, title, hint] of GROUPS) {
+      const results = data.groups[key];
+      if (!results.length) continue;
+      const heading = el("h2", `group ${key}`, title);
+      heading.append(el("span", null, results.length));
+      resultsEl.append(heading, el("p", "hint", hint), cardList(results, result => result.terms));
+    }
+    if (ready && !count) {
+      resultsEl.append(el("p", "empty", data.indexing
+        ? "Henüz uygun ilan çıkmadı. İlan metinleri taranmaya devam ediyor."
+        : "Şu an alanınızın geçtiği güncel ilan yok."));
+    }
+
+    const hidden = [];
+    if (data.hidden.faculty) hidden.push(`${data.hidden.faculty} öğretim üyesi ilanı (doktora gerekir)`);
+    if (data.hidden.cancelled) hidden.push(`${data.hidden.cancelled} iptal ilanı`);
+    if (hidden.length) resultsEl.append(el("p", "hint", `Alanınızın geçtiği ${hidden.join(" ve ")} gösterilmiyor.`));
+  }
+
+  async function run() {
+    clearTimeout(pollTimer);
+    const query = input.value;
+    const no = ++requestNo;
+
+    const address = tab === "match" ? "?sekme=uygun" : query.trim() ? `?q=${encodeURIComponent(query.trim())}` : location.pathname;
+    history.replaceState(null, "", address);
+    for (const chip of chipsEl.children) {
+      chip.setAttribute("aria-pressed", fold(chip.textContent) === fold(query.trim()));
+    }
+
+    let data;
+    try {
+      const response = await fetch(tab === "match" ? "/api/match" : `/api/search?q=${encodeURIComponent(query)}`);
+      if (!response.ok) throw new Error(response.status);
+      data = await response.json();
+    } catch (error) {
+      if (no === requestNo) {
+        statusEl.textContent = "Arama sunucusuna ulaşılamadı. Bu sayfa Live Server ile ya da dosyadan açılınca çalışmaz; baslat.bat'ı çalıştırın, site kendiliğinden açılır.";
+      }
+      return;
+    }
+    if (no !== requestNo) return;
+
+    if (tab === "match") renderMatch(data); else renderSearch(data, query);
+    // Metin taraması sürerken sonuçlar artabilir; bitene kadar tazele
+    if (data.indexing || !data.ready) pollTimer = setTimeout(run, data.indexing ? 2500 : 10000);
+  }
+
+  function showTab(name) {
+    tab = name;
+    for (const button of tabButtons) button.setAttribute("aria-selected", button.dataset.tab === tab);
+    document.getElementById("view-search").hidden = tab !== "search";
+    document.getElementById("view-match").hidden = tab !== "match";
+    run();
+  }
+
+  // Sayfa Flask dışında açılırsa şablon işlenmez; öneriler boş kalır ama sayfa bozulmaz
+  let keywords = [];
+  try { keywords = JSON.parse(chipsEl.dataset.keywords); } catch (error) {}
+
+  for (const keyword of keywords) {
+    const chip = el("button", null, keyword);
+    chip.type = "button";
+    chip.addEventListener("click", () => { input.value = keyword; run(); });
+    chipsEl.append(chip);
+  }
+
+  for (const button of tabButtons) button.addEventListener("click", () => showTab(button.dataset.tab));
+  document.getElementById("form").addEventListener("submit", event => { event.preventDefault(); run(); });
+  input.addEventListener("input", () => { clearTimeout(typeTimer); typeTimer = setTimeout(run, 200); });
+
+  input.value = params.get("q") || "";
+  showTab(tab);
+  if (tab === "search") input.focus();
+</script>
+</body>
+</html>

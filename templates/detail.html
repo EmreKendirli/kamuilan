@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ listing.institution }} – {{ listing.title }}</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<main class="wide">
+  <a class="back" id="back" href="{{ url_for('index') }}">← Aramaya dön</a>
+
+  <div class="detail-head">
+    {% if listing.logo %}
+    <img class="logo" src="{{ listing.logo }}" alt="" referrerpolicy="no-referrer" onerror="this.remove()">
+    {% endif %}
+    <div>
+      <div class="institution">{{ listing.institution }}</div>
+      <h1>{{ listing.title }}</h1>
+      <div class="meta">
+        {% if listing.apply_dates %}<span>Başvuru: {{ listing.apply_dates }}</span>{% endif %}
+        {% if days_left is not none %}<span class="left{% if days_left <= 3 %} urgent{% endif %}">{{ days_left_label }}</span>{% endif %}
+        {% if listing.published %}<span>Yayın: {{ listing.published }}</span>{% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="actions">
+    <a class="button" href="{{ document_url }}" target="_blank" rel="noopener">İlan dosyasını yeni sekmede aç</a>
+    <a class="button secondary" href="https://kamuilan.sbb.gov.tr/" target="_blank" rel="noopener">Kaynak site: kamuilan.sbb.gov.tr</a>
+  </div>
+
+  {% if embed %}
+  <iframe class="document" src="{{ document_url }}" title="İlan metni"></iframe>
+  {% else %}
+  <p class="empty">Bu ilanın dosyası tarayıcıda gösterilemiyor; yukarıdaki düğmeyle açıp indirebilirsiniz.</p>
+  {% endif %}
+</main>
+
+<script>
+  // Aramadan gelindiyse geri dönünce arama kelimesi ve sonuçlar yerinde kalsın
+  document.getElementById("back").addEventListener("click", event => {
+    if (document.referrer.startsWith(location.origin) && history.length > 1) {
+      event.preventDefault();
+      history.back();
+    }
+  });
+</script>
+</body>
+</html>

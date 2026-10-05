@@ -1,0 +1,8 @@
+__pycache__/
+
+# İndirilen ilan dosyaları ve metinleri (site açılınca yeniden oluşur)
+cache/
+
+# Kişisel bilgiler ve botun çıktısı
+profil.json
+bulunan_ilanlar.json
