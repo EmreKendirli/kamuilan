@@ -1,5 +1,6 @@
 import logging
 import re
+import sys
 import threading
 import time
 import webbrowser
@@ -11,6 +12,11 @@ from flask import Flask, abort, jsonify, render_template, request, send_file, ur
 import matcher
 import scraper
 from config import CACHE_DIR, KEYWORDS, PROFILE, REFRESH_MINUTES, SITE_PORT, SITE_URL
+
+# Sunucu konsolu Türkçe karakterleri yazamıyorsa print() hata verip taramayı durdurmasın
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(encoding="utf-8", errors="replace", line_buffering=True)
 
 app = Flask(__name__)
 app.json.ensure_ascii = False
@@ -93,11 +99,14 @@ def refresh_loop():
         try:
             refresh()
         except Exception as e:
-            print(f"[!] İlanlar güncellenemedi: {e}")
+            # Önce durumu kaydet: konsola yazma da hata verebilir, sayfa yine de nedenini göstersin
             with lock:
-                state["error"] = str(e)
-        state["indexing"] = False
-        time.sleep(REFRESH_MINUTES * 60)
+                state["error"] = f"{type(e).__name__}: {e}"
+            print(f"[!] İlanlar güncellenemedi: {e}")
+        finally:
+            state["indexing"] = False
+        # Hiç ilan alınamadıysa yarım saat beklemeden yeniden dene
+        time.sleep(REFRESH_MINUTES * 60 if state["listings"] else 120)
 
 def make_snippet(text, folded, terms):
     """Metinde ilk eşleşen kelimenin çevresinden kısa bir alıntı döndürür."""
