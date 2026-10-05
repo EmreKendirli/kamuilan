@@ -1,4 +1,5 @@
 import logging
+import os
 import re
 import sys
 import threading
@@ -290,10 +291,24 @@ def open_document(listing_id):
 
     return send_file(path, download_name=f"ilan-{listing_id}{path.suffix}")
 
-# İlan taraması hem "python app.py" ile hem de sunucuda (gunicorn app:app) başlasın.
-# Durum bellekte tutulduğu için sunucuda tek işlemle (--workers 1) çalıştırılmalıdır.
-CACHE.mkdir(exist_ok=True)
-threading.Thread(target=refresh_loop, daemon=True).start()
+_start_lock = threading.Lock()
+_refresh_pid = None
+
+@app.before_request
+def ensure_refresh_running():
+    """İlan taramasını, istekleri karşılayan işlemde ilk istekle birlikte başlatır.
+
+    Modül yüklenirken başlatılırsa gunicorn --preload (Render'da varsayılan) ile ana işlemde kalır;
+    çatallanan çalışan işlemde iş parçacığı yaşamaz ve ilanlar hiç gelmez.
+    Durum bellekte tutulduğu için sunucuda tek işlemle (--workers 1) çalıştırılmalıdır.
+    """
+    global _refresh_pid
+    if _refresh_pid != os.getpid():
+        with _start_lock:
+            if _refresh_pid != os.getpid():
+                _refresh_pid = os.getpid()
+                CACHE.mkdir(exist_ok=True)
+                threading.Thread(target=refresh_loop, daemon=True).start()
 
 if __name__ == "__main__":
     threading.Timer(1.0, webbrowser.open, args=[SITE_URL]).start()
